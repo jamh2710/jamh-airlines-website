@@ -1064,4 +1064,387 @@ function buildFlight(route, departureDate, cabin, index) {
   const aircraft = getAircraft(flyingTime);
 
   const fare = legs.reduce(
-    (sum, leg) => sum + farePerLeg(leg.from,
+    (sum, leg) => sum + farePerLeg(leg.from, leg.to, cabin),
+    0
+  );
+
+  return {
+    id: makeId("JH"),
+    route,
+    legs,
+    departure,
+    arrival,
+    aircraft,
+    cabin,
+    fare,
+    stops: Math.max(0, legs.length - 1),
+    duration: totalTime
+  };
+}
+
+let currentFlights = [];
+let selectedFlight = null;
+let currentSearch = null;
+
+const results = $("#flight-results");
+
+function renderFlight(flight, passengers) {
+  return `
+    <article class="flight-card" data-flight-id="${flight.id}">
+      <div class="flight-card-header">
+        <div>
+          <span>Jamh Airlines</span>
+          <h3>${flight.route.join(" → ")}</h3>
+          <p>${flight.stops === 0 ? "Non-stop" : `${flight.stops} connection(s)`}</p>
+        </div>
+        <div class="flight-price">
+          <strong>${euro(flight.fare * passengers)}</strong>
+          <small>${euro(flight.fare)} per passenger</small>
+        </div>
+      </div>
+
+      <div class="flight-times">
+        <div>
+          <strong>${formatTime(flight.departure)}</strong>
+          <span>${flight.route[0]}</span>
+          <small>${formatDate(flight.departure)}</small>
+        </div>
+
+        <div>
+          <span>${formatDuration(flight.duration)}</span>
+          <hr>
+          <span>${flight.stops === 0 ? "Direct flight" : "Connecting flight"}</span>
+        </div>
+
+        <div>
+          <strong>${formatTime(flight.arrival)}</strong>
+          <span>${flight.route[flight.route.length - 1]}</span>
+          <small>${formatDate(flight.arrival)}</small>
+        </div>
+      </div>
+
+      <p>${flight.aircraft} · ${flight.cabin}</p>
+
+      <button type="button" data-select-flight="${flight.id}">
+        Select flight
+      </button>
+    </article>
+  `;
+}
+
+function searchFlights(event) {
+  event?.preventDefault();
+
+  const origin = airportCode($("#origin")?.value);
+  const destination = airportCode($("#destination")?.value);
+
+  if (!origin || !destination) {
+    toast("Please select your departure and destination airports.");
+    return;
+  }
+
+  if (origin === destination) {
+    toast("Your departure and destination must be different.");
+    return;
+  }
+
+  const departureDate = depart?.value || toISO(tomorrow);
+  const returnValue = returnDate?.value || departureDate;
+
+  if (departureDate < toISO(today)) {
+    toast("Please choose a valid departure date.");
+    return;
+  }
+
+  if (tripType === "return" && returnValue < departureDate) {
+    toast("Your return date must be on or after your departure date.");
+    return;
+  }
+
+  const passengers = getPassengers();
+  const cabin = getCabin();
+  const route = getRoute(origin, destination);
+
+  currentSearch = {
+    origin,
+    destination,
+    departureDate,
+    returnDate: returnValue,
+    tripType,
+    passengers,
+    cabin,
+    route
+  };
+
+  selectedFlight = null;
+
+  currentFlights = [
+    buildFlight(route, departureDate, cabin, 0),
+    buildFlight(route, departureDate, cabin, 1),
+    buildFlight(route, departureDate, cabin, 2)
+  ];
+
+  if (!results) {
+    toast("The flight-results element is missing from your HTML.");
+    console.table(currentFlights);
+    return;
+  }
+
+  results.innerHTML = `
+    <section class="flight-search-summary">
+      <h2>Available flights</h2>
+      <p>${airportName(origin)} (${origin}) → ${airportName(destination)} (${destination})</p>
+      <p>${departureDate} · ${passengers} passenger(s) · ${cabin}</p>
+      ${tripType === "return" ? `<p>Return: ${returnValue}</p>` : ""}
+    </section>
+    ${currentFlights.map(flight => renderFlight(flight, passengers)).join("")}
+  `;
+
+  results.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+}
+
+const bookingForm =
+  $("#booking-form") ||
+  $("#flight-search-form") ||
+  $(".booking-form");
+
+bookingForm?.addEventListener("submit", searchFlights);
+
+const searchButton =
+  $("#search-flights") ||
+  $("#search-button") ||
+  $(".search-flights");
+
+if (searchButton && searchButton.type !== "submit") {
+  searchButton.addEventListener("click", searchFlights);
+}
+
+/* =========================================================
+   SELECT FLIGHT AND CREATE DEMO BOOKING
+   ========================================================= */
+
+document.addEventListener("click", event => {
+  const button = event.target.closest("[data-select-flight]");
+
+  if (!button) return;
+
+  selectedFlight = currentFlights.find(
+    flight => flight.id === button.dataset.selectFlight
+  );
+
+  if (!selectedFlight || !currentSearch) {
+    toast("Please search for flights first.");
+    return;
+  }
+
+  const total = selectedFlight.fare * currentSearch.passengers;
+
+  let summary = $("#booking-summary");
+
+  if (!summary) {
+    summary = document.createElement("section");
+    summary.id = "booking-summary";
+    (results || document.body).appendChild(summary);
+  }
+
+  summary.innerHTML = `
+    <h2>Review your flight</h2>
+    <p><strong>Route:</strong> ${selectedFlight.route.join(" → ")}</p>
+    <p><strong>Departure:</strong> ${formatDate(selectedFlight.departure)} at ${formatTime(selectedFlight.departure)}</p>
+    <p><strong>Aircraft:</strong> ${selectedFlight.aircraft}</p>
+    <p><strong>Cabin:</strong> ${selectedFlight.cabin}</p>
+    <p><strong>Passengers:</strong> ${currentSearch.passengers}</p>
+    <p><strong>Price per passenger:</strong> ${euro(selectedFlight.fare)}</p>
+    <p><strong>Total:</strong> ${euro(total)}</p>
+    <button type="button" id="confirm-demo-booking">Confirm demo booking</button>
+    <p>This is a demo only. No payment is taken.</p>
+  `;
+
+  summary.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+document.addEventListener("click", event => {
+  if (event.target.id !== "confirm-demo-booking") return;
+
+  if (!selectedFlight || !currentSearch) {
+    toast("Select a flight first.");
+    return;
+  }
+
+  const reference = makeId("JH");
+
+  const booking = {
+    reference,
+    origin: currentSearch.origin,
+    destination: currentSearch.destination,
+    departureDate: currentSearch.departureDate,
+    returnDate: currentSearch.returnDate,
+    tripType: currentSearch.tripType,
+    passengers: currentSearch.passengers,
+    cabin: selectedFlight.cabin,
+    aircraft: selectedFlight.aircraft,
+    fare: selectedFlight.fare,
+    total: selectedFlight.fare * currentSearch.passengers
+  };
+
+  try {
+    const bookings = JSON.parse(
+      localStorage.getItem("jamhDemoBookings") || "[]"
+    );
+
+    bookings.push(booking);
+
+    localStorage.setItem(
+      "jamhDemoBookings",
+      JSON.stringify(bookings)
+    );
+  } catch (error) {
+    console.warn("Unable to save local demo booking.", error);
+  }
+
+  const summary = $("#booking-summary");
+
+  if (summary) {
+    summary.innerHTML = `
+      <h2>Demo booking confirmed</h2>
+      <p>Your demo reference:</p>
+      <h3>${reference}</h3>
+      <p><strong>Route:</strong> ${booking.origin} → ${booking.destination}</p>
+      <p><strong>Departure:</strong> ${booking.departureDate}</p>
+      <p><strong>Passengers:</strong> ${booking.passengers}</p>
+      <p><strong>Total:</strong> ${euro(booking.total)}</p>
+      <p>This is not a real ticket. No payment was taken.</p>
+      <button type="button" id="copy-booking-reference" data-reference="${reference}">
+        Copy reference
+      </button>
+    `;
+  }
+
+  toast(`Demo booking created: ${reference}`);
+});
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest("#copy-booking-reference");
+
+  if (!button) return;
+
+  try {
+    await navigator.clipboard.writeText(button.dataset.reference);
+    toast("Booking reference copied.");
+  } catch (error) {
+    window.prompt("Copy your booking reference:", button.dataset.reference);
+  }
+});
+
+/* =========================================================
+   MANAGE BOOKING
+   ========================================================= */
+
+const manageForm =
+  $("#manage-booking-form") ||
+  $("#manage-booking");
+
+manageForm?.addEventListener("submit", event => {
+  event.preventDefault();
+
+  const referenceInput =
+    $("#booking-reference", manageForm) ||
+    $('[name="booking-reference"]', manageForm);
+
+  const reference = String(referenceInput?.value || "")
+    .trim()
+    .toUpperCase();
+
+  if (!reference) {
+    toast("Enter your booking reference.");
+    return;
+  }
+
+  let bookings = [];
+
+  try {
+    bookings = JSON.parse(
+      localStorage.getItem("jamhDemoBookings") || "[]"
+    );
+  } catch (error) {
+    bookings = [];
+  }
+
+  const booking = bookings.find(
+    item => item.reference.toUpperCase() === reference
+  );
+
+  let output = $("#manage-booking-result");
+
+  if (!output) {
+    output = document.createElement("div");
+    output.id = "manage-booking-result";
+    manageForm.insertAdjacentElement("afterend", output);
+  }
+
+  if (!booking) {
+    output.textContent =
+      "No matching demo booking was found in this browser.";
+    return;
+  }
+
+  output.innerHTML = `
+    <h3>Booking found</h3>
+    <p>Reference: ${booking.reference}</p>
+    <p>Route: ${booking.origin} → ${booking.destination}</p>
+    <p>Departure: ${booking.departureDate}</p>
+    <p>Passengers: ${booking.passengers}</p>
+    <p>Total: ${euro(booking.total)}</p>
+  `;
+});
+
+/* =========================================================
+   NEWSLETTER
+   ========================================================= */
+
+const newsletterForm =
+  $("#newsletter-form") ||
+  $(".newsletter-form");
+
+newsletterForm?.addEventListener("submit", event => {
+  event.preventDefault();
+
+  const email = $('input[type="email"]', newsletterForm);
+
+  if (!email || !email.checkValidity()) {
+    toast("Please enter a valid email address.");
+    email?.focus();
+    return;
+  }
+
+  toast("Thanks for your interest in Jamh Airlines!");
+  newsletterForm.reset();
+});
+
+/* =========================================================
+   SMOOTH SCROLLING
+   ========================================================= */
+
+$$('a[href^="#"]').forEach(link => {
+  link.addEventListener("click", event => {
+    const href = link.getAttribute("href");
+
+    if (!href || href === "#") return;
+
+    const target = $(href);
+
+    if (!target) return;
+
+    event.preventDefault();
+
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  });
+});
+
+console.info("Jamh Airlines script loaded successfully.");
