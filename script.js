@@ -313,7 +313,7 @@ const LANGUAGES = {
 };
 
 /* =========================================================
-   HELPERS (previously missing)
+   HELPERS
    ========================================================= */
 
 function airportCode(value) {
@@ -385,8 +385,6 @@ function toast(message) {
 
 /* =========================================================
    LANGUAGE SELECTOR
-   Supports buttons using data-language, data-lang,
-   .language-btn, .lang-btn, and common language codes.
    ========================================================= */
 
 let currentLanguage = "en";
@@ -439,14 +437,12 @@ function translatePage(languageCode) {
 
   document.documentElement.lang = languageCode;
 
-  // Save the selection so it remains selected after a refresh.
   try {
     localStorage.setItem("jamhLanguage", languageCode);
   } catch (error) {
-    // The website can still work if storage is unavailable.
+    // ignore
   }
 
-  // Translate elements explicitly marked with data-i18n.
   $$("[data-i18n]").forEach(element => {
     const key = element.dataset.i18n;
     const translation = language.translations[key];
@@ -456,12 +452,9 @@ function translatePage(languageCode) {
         element.dataset.originalText = element.textContent;
       }
 
-      // Only replace text if the element has no element children,
-      // so icons and nested markup are preserved.
       if (element.children.length === 0) {
         element.textContent = translation;
       } else {
-        // Update only text nodes.
         [...element.childNodes].forEach(node => {
           if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
             node.textContent = translation;
@@ -471,7 +464,6 @@ function translatePage(languageCode) {
     }
   });
 
-  // Translate common headings, buttons, links and labels.
   const translatableElements = $$(
     "button, a, h1, h2, h3, h4, label, .section-title, .eyebrow"
   );
@@ -485,7 +477,6 @@ function translatePage(languageCode) {
     const key = original.trim();
 
     if (language.translations[key]) {
-      // Preserve child elements (icons, flags, etc.).
       if (element.children.length === 0) {
         element.textContent = language.translations[key];
       } else {
@@ -508,7 +499,6 @@ function translatePage(languageCode) {
     }
   });
 
-  // Translate placeholder text where a translation is available.
   $$("[placeholder]").forEach(element => {
     if (!element.dataset.originalPlaceholder) {
       element.dataset.originalPlaceholder = element.placeholder;
@@ -523,7 +513,6 @@ function translatePage(languageCode) {
     }
   });
 
-  // Translate accessible labels.
   $$("[aria-label]").forEach(element => {
     if (!element.dataset.originalAriaLabel) {
       element.dataset.originalAriaLabel = element.getAttribute("aria-label");
@@ -538,7 +527,6 @@ function translatePage(languageCode) {
     }
   });
 
-  // Update all language buttons to show flags and active state.
   $$(
     "[data-language], [data-lang], [data-locale], .language-btn, .lang-btn"
   ).forEach(button => {
@@ -551,7 +539,6 @@ function translatePage(languageCode) {
     button.classList.toggle("active", selected);
     button.setAttribute("aria-pressed", String(selected));
 
-    // Keep the language's flag visible.
     const flag = LANGUAGES[code].flag;
 
     let flagElement = $(".language-flag, .lang-flag", button);
@@ -566,7 +553,6 @@ function translatePage(languageCode) {
     flagElement.textContent = flag;
   });
 
-  // Update the main language selector, if present.
   const currentLanguageDisplay =
     $("#current-language") ||
     $(".current-language") ||
@@ -579,27 +565,14 @@ function translatePage(languageCode) {
     currentLanguageDisplay.textContent = `${flag} ${name}`;
   }
 
-  // Update elements dedicated to displaying the selected flag.
   $$("[data-language-flag], #language-flag, .current-language-flag")
     .forEach(element => {
       element.textContent = language.flag;
     });
 
-  // Update the page title when it has a known translation.
-  const titleTranslations = {
-    en: "Jamh Airlines",
-    ga: "Jamh Airlines",
-    fr: "Jamh Airlines",
-    de: "Jamh Airlines",
-    es: "Jamh Airlines",
-    it: "Jamh Airlines"
-  };
-
-  document.title = titleTranslations[languageCode] || "Jamh Airlines";
+  document.title = "Jamh Airlines";
 }
 
-// Delegated handler works for language buttons even if they're
-// inserted into the page after this script loads.
 document.addEventListener("click", event => {
   const button = event.target.closest(
     "[data-language], [data-lang], [data-locale], .language-btn, .lang-btn"
@@ -615,7 +588,6 @@ document.addEventListener("click", event => {
   translatePage(code);
 });
 
-// Restore saved language.
 let savedLanguage = "en";
 
 try {
@@ -629,12 +601,76 @@ try {
 translatePage(savedLanguage);
 
 /* =========================================================
+   AIRPORT DATALISTS
+   Builds a <datalist> for every hub airport input.
+   Supports:
+     - #origin / #destination
+     - #from / #to
+     - [data-airport-input]
+     - [list] pointing to an existing <datalist>
+   ========================================================= */
+
+const AIRPORT_LABELS = AIRPORTS.map(([label]) => label);
+
+function buildAirportDatalist(id) {
+  let list = document.getElementById(id);
+
+  if (!list) {
+    list = document.createElement("datalist");
+    list.id = id;
+    document.body.appendChild(list);
+  } else {
+    // Clear existing options so we don't duplicate on re-run.
+    list.innerHTML = "";
+  }
+
+  AIRPORT_LABELS.forEach(label => {
+    const option = document.createElement("option");
+    option.value = label;
+    list.appendChild(option);
+  });
+
+  return list;
+}
+
+const airportInputs = $$(
+  "#origin, #destination, #from, #to, [data-airport-input], " +
+  "input[list='airport-options'], input[list='airports']"
+);
+
+airportInputs.forEach(input => {
+  // Determine which datalist this input should use.
+  let listId = input.getAttribute("list");
+
+  if (!listId) {
+    listId = input.id ? `${input.id}-options` : "airport-options";
+    input.setAttribute("list", listId);
+  }
+
+  buildAirportDatalist(listId);
+
+  // Helpful defaults so the browser shows the full list on focus.
+  input.setAttribute("autocomplete", "off");
+  input.setAttribute("spellcheck", "false");
+  input.setAttribute("placeholder", input.placeholder || "City or airport");
+
+  // If empty, seed with the Jamh Airlines hub.
+  if (!input.value) {
+    input.value = input.id === "destination"
+      ? "Dubai (DXB)"
+      : "Dublin (DUB)";
+  }
+});
+
+/* =========================================================
    AIRPORT DIRECTORY AND DATE SETUP
    ========================================================= */
 
 const airportOptions = $("#airport-options");
 
-if (airportOptions) {
+if (airportOptions && airportOptions.tagName === "DATALIST") {
+  // Already handled above.
+} else if (airportOptions && airportOptions.tagName === "SELECT") {
   AIRPORTS.forEach(([label]) => {
     if (
       [...airportOptions.options].some(option => option.value === label)
@@ -733,11 +769,6 @@ $(".swap-airports")?.addEventListener("click", () => {
 
 /* =========================================================
    DISCOVER CITY BUTTONS
-   Supports data-destination, data-city and data-airport.
-   Examples:
-   <button data-destination="DXB">Discover Dubai</button>
-   <button data-city="Paris">Discover Paris</button>
-   <button data-airport="JFK">Explore New York</button>
    ========================================================= */
 
 function findAirportFromDestination(value) {
@@ -869,8 +900,6 @@ document.addEventListener("click", event => {
 
   destinationInput.value = found[0];
 
-  // If the selected destination is the same as the origin,
-  // choose the other Jamh Airlines hub automatically.
   if (originInput && airportCode(originInput.value) === found[1]) {
     originInput.value = found[1] === "DUB"
       ? "Ethanburgh Cranwick (EHC)"
@@ -931,14 +960,11 @@ function durationBetween(from, to) {
 function getRoute(origin, destination) {
   if (!origin || !destination || origin === destination) return null;
 
-  // Direct services from either hub are permitted.
   if (origin === "DUB" || origin === "EHC" ||
       destination === "DUB" || destination === "EHC") {
     return [origin, destination];
   }
 
-  // Other destinations connect through Dublin.
-  // The fictional airline's connecting hub is Dublin.
   return [origin, "DUB", destination];
 }
 
@@ -1038,30 +1064,4 @@ function buildFlight(route, departureDate, cabin, index) {
   const aircraft = getAircraft(flyingTime);
 
   const fare = legs.reduce(
-    (sum, leg) => sum + farePerLeg(leg.from, leg.to, cabin),
-    0
-  );
-
-  return {
-    id: makeId("JH"),
-    route,
-    legs,
-    departure,
-    arrival,
-    aircraft,
-    cabin,
-    fare,
-    stops: Math.max(0, legs.length - 1),
-    duration: totalTime
-  };
-}
-
-let currentFlights = [];
-let selectedFlight = null;
-let currentSearch = null;
-
-const results = $("#flight-results");
-
-function renderFlight(flight, passengers) {
-  return `
-    <article class="flight-card
+    (sum, leg) => sum + farePerLeg(leg.from,
